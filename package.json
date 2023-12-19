@@ -12,6 +12,10 @@
   "devDependencies": {
     "@berlysia/eslint-config": "^5.0.2",
     "@types/eslint": "^8.44.8",
+    "@types/estree": "^1.0.5",
+    "@types/micromatch": "^4",
+    "@types/node": "^20.10.3",
+    "@types/resolve": "^1",
     "eslint": "^8.55.0",
     "eslint-plugin-eslint-plugin": "^5.1.1",
     "prettier": "^4.0.0-alpha.3",
@@ -21,5 +25,12 @@
   },
   "peerDependencies": {
     "eslint": "*"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "get-tsconfig": "^4.7.2",
+    "micromatch": "^4.0.5",
+    "resolve": "^1.22.8",
+    "slash": "^5.1.0"
   }
 }
