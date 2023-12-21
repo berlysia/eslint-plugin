@@ -165,6 +165,7 @@ const rule: Rule.RuleModule = {
 
         const currentFileDir = dirname(physicalFilename);
 
+        // TODO: use the algorithm described in https://github.com/microsoft/TypeScript/issues/5039
         const matchedPaths = matchAlias(value, paths);
         const results =
           matchedPaths.length === 0
