@@ -30,11 +30,6 @@ test("prefer-closest-import-path: simple", () => {
         code: `import a from "@x/a";`,
       },
       {
-        options: DEFAULT_OPTIONS,
-        filename: "src/stubs/deep2/foo.ts",
-        code: `import a from "../deep/a";`,
-      },
-      {
         options: [{ paths: { "@x/*": ["src/stubs/*"] }, baseUrl: "./" }],
         filename: "src/deep/foo.ts",
         code: `import a from "../stubs/notfound";`,

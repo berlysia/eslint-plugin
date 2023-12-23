@@ -90,7 +90,7 @@ test("@/* => src/*, @utils/* => src/utils/*, attack", () => {
   `);
 });
 
-test("@/* => src/*, @utils/* => src/utils/*, @utils/*", () => {
+test("@/* => src/*, @utils/* => src/rules/*, @utils/* => src/utils/*", () => {
   expect(
     resolveTargetPath(
       "src/test.ts",

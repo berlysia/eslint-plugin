@@ -1,13 +1,15 @@
-import { assumeAlias, matchAlias } from "../utils/alias";
-import type { Rule } from "eslint";
-import { getTsconfig, TsConfigJsonResolved } from "get-tsconfig";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import normalizePath from "../utils/normalizePath";
+import { getTsconfig } from "get-tsconfig";
+import type { Rule } from "eslint";
 import slash from "slash";
+import resolvePkg from "resolve";
+import normalizePath from "../utils/normalizePath";
+import { assumeAlias, matchAlias } from "../utils/alias";
 import countSegmentLength from "../utils/countSegmentLength";
-import { sync as requireResolve } from "resolve";
 import lowestCommonAncestor from "../utils/lowestCommonAncestor";
+
+const requireResolve = resolvePkg.sync;
 
 // js/ts/jsx/tsx x cjs/esm
 const extensions = [
@@ -94,13 +96,13 @@ function getPreferAccessor(prefer: Option["prefer"] | null | undefined) {
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function readPaths(cwd: string, alias: Alias): Alias["paths"] {
-  const newPaths = { ...(alias.paths ?? {}) };
+  const newPaths = { ...alias.paths };
   if (alias.baseUrl) {
-    Object.entries(newPaths).forEach(([key, value]) => {
+    for (const [key, value] of Object.entries(newPaths)) {
       newPaths[key] = value.map((x) =>
         normalizePath(slash(relative(cwd, resolve(alias.baseUrl, x)))),
       );
-    });
+    }
   }
   return newPaths;
 }
@@ -173,11 +175,17 @@ const rule: Rule.RuleModule = {
             : matchedPaths.map((x) => resolve(cwd, x));
 
         const existingPaths = results.filter((x) => {
-          const relativePath = normalizePath(slash(relative(currentDir, x)));
+          const isPath =
+            x.startsWith("./") || x.startsWith("../") || x.startsWith("/");
+          const relativePath = normalizePath(
+            slash(isPath ? relative(currentDir, x) : x),
+          );
+          console.log({ isPath, relativePath, currentDir, x });
           try {
             const resolved = requireResolve(relativePath, { extensions });
             return resolved !== value;
-          } catch (e) {
+          } catch (error) {
+            console.error(error);
             return false;
           }
         });
@@ -187,7 +195,7 @@ const rule: Rule.RuleModule = {
           const lca = lowestCommonAncestor(current, x);
           const normalizedLca = normalizePath(slash(relative(cwd, lca)));
           const lcaAssumed = assumeAlias(
-            normalizedLca.endsWith("/") ? normalizedLca : normalizedLca + "/",
+            normalizedLca.endsWith("/") ? normalizedLca : `${normalizedLca}/`,
             paths,
           );
 
@@ -195,6 +203,8 @@ const rule: Rule.RuleModule = {
             normalizePath(slash(relative(cwd, x))),
             paths,
           );
+
+          console.log({ lcaAssumed, result });
 
           return result.map((value) => ({
             alias: value.alias,
@@ -246,11 +256,21 @@ const rule: Rule.RuleModule = {
           },
           {
             ignored: false,
-            minLength: Infinity,
+            minLength: Number.POSITIVE_INFINITY,
             isLcaAssumed: false,
             value,
           },
         );
+
+        console.log({
+          physicalFilename,
+          value,
+          results,
+          existingPaths,
+          assumed,
+          candidates,
+          mostSuitable,
+        });
 
         if (mostSuitable.ignored || mostSuitable.value === value) {
           return;

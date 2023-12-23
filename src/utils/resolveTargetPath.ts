@@ -62,7 +62,5 @@ export default function resolveTargetPath(
       )
     : [];
 
-  const result = [simplifiedPath, ...aliasDestinations];
-
-  return result;
+  return [simplifiedPath, ...aliasDestinations];
 }
