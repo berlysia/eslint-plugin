@@ -2,6 +2,10 @@ import path, { normalize } from "node:path";
 import { moduleExists } from "../moduleExists";
 import normalizePath from "../normalizePath";
 
+const Log = process.env.DEBUG?.includes("@berlysia/eslint-plugin")
+  ? console
+  : { log: () => {} };
+
 // based on https://github.com/microsoft/TypeScript/issues/5039
 
 const starPattern = /\*/g;
@@ -42,15 +46,14 @@ type ResolveResult = { rootRelative: string; importPath: string };
 
 export function resolveImportPathInTypeScriptManner(
   given: string,
-  fromFile: string,
+  importerDir: string,
   rawContext: Partial<Context>,
-): string | null {
+): ResolveResult | null {
   const context = ensureContext(rawContext);
-  const importerDir = path.dirname(fromFile);
   {
     const resolved = resolveWithPaths(given, importerDir, context);
 
-    if (resolved) return resolved.importPath;
+    if (resolved) return resolved;
   }
 
   {
@@ -58,7 +61,7 @@ export function resolveImportPathInTypeScriptManner(
       ? resolveWithRootDirs(given, importerDir, context)
       : resolveWithBaseUrl(given, importerDir, context);
 
-    if (resolved) return resolved.importPath;
+    if (resolved) return resolved;
   }
 
   return null;
@@ -122,7 +125,7 @@ function matchByPattern(
 }
 
 function resolveSubstitution(subst: string, captured: string | null): string {
-  return captured ? subst.replace("*", captured) : subst;
+  return captured === null ? subst : subst.replace("*", captured);
 }
 
 function resolveWithPaths(
@@ -130,7 +133,7 @@ function resolveWithPaths(
   importerDir: string,
   context: Context,
 ): ResolveResult | null {
-  console.log("resolveWithPaths", { given, importerDir, context });
+  Log.log("resolveWithPaths", { given, importerDir, context });
   if (!context.paths) return null;
 
   const matched = matchByPattern(given, context.paths);
@@ -155,20 +158,22 @@ function resolveWithPaths(
     } else {
       // baseUrlがあるとき→appliedをbaseUrlからの相対パスとして先に解決
       if (context.baseUrl) {
-        const absolutePath = normalizePath(path.join(context.baseUrl, applied));
+        const absolutePath = normalizePath(
+          path.join(context.cwd, context.baseUrl, applied),
+        );
         if (context.moduleExists(absolutePath)) {
           return {
             rootRelative: normalizePath(
               path.relative(context.cwd, absolutePath),
             ),
-            importPath: applied,
+            importPath: normalizePath(applied),
           };
         }
       }
       // baseUrlがないとき→appliedをmoduleとして解決
       if (context.moduleExists(applied)) {
         return {
-          rootRelative: normalizePath(path.relative(context.cwd, applied)),
+          rootRelative: applied,
           importPath: applied,
         };
       }
@@ -183,7 +188,7 @@ function resolveWithBaseUrl(
   importerDir: string,
   context: Context,
 ): ResolveResult | null {
-  console.log("resolveWithBaseUrl", { given, importerDir, context });
+  Log.log("resolveWithBaseUrl", { given, importerDir, context });
   if (isRelativeStartWithDot(given)) {
     // RootRelativeなもののうちsyntaxにあらわれているもの
     const absolutePath = normalizePath(path.join(context.cwd, given));
@@ -209,7 +214,7 @@ function resolveWithBaseUrl(
     // baseUrlがないとき→givenをmoduleとして解決
     if (context.moduleExists(given)) {
       return {
-        rootRelative: normalizePath(path.relative(context.cwd, given)),
+        rootRelative: given,
         importPath: given,
       };
     }
@@ -222,7 +227,7 @@ function resolveWithRootDirs(
   importerDir: string,
   context: Context,
 ): ResolveResult | null {
-  console.log("resolveWithRootDirs", { given, importerDir, context });
+  Log.log("resolveWithRootDirs", { given, importerDir, context });
   if (!context.rootDirs) return null;
 
   const candidate = normalizePath(path.join(importerDir, given));
@@ -275,4 +280,113 @@ function resolveWithRootDirs(
   }
 
   return null;
+}
+
+function invertPaths(
+  paths: NonNullable<Context["paths"]>,
+  baseUrl: string | undefined,
+  forLCA: boolean,
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const [pattern, substitutions] of Object.entries(paths)) {
+    assertAliasStarCount(pattern);
+    const patternDroppedSlashStar = pattern.endsWith("/*")
+      ? pattern.slice(0, -2)
+      : null;
+    for (const subst of substitutions) {
+      assertAliasStarCount(subst);
+      const key = isRelativeStartWithDot(subst)
+        ? subst
+        : baseUrl
+          ? normalizePath(path.join(baseUrl, subst))
+          : subst;
+      const tmp = result[key] ?? [];
+      tmp.push(pattern);
+      result[key] = tmp;
+
+      if (!forLCA) continue;
+      const substDroppedSlashStar = subst.endsWith("/*")
+        ? subst.slice(0, -2)
+        : null;
+
+      if (substDroppedSlashStar && patternDroppedSlashStar) {
+        const key = isRelativeStartWithDot(substDroppedSlashStar)
+          ? substDroppedSlashStar
+          : baseUrl
+            ? normalizePath(path.join(baseUrl, substDroppedSlashStar))
+            : substDroppedSlashStar;
+        const tmp = result[key] ?? [];
+        tmp.push(patternDroppedSlashStar);
+        result[key] = tmp;
+      }
+    }
+  }
+  return result;
+}
+
+export function reverseResolve(
+  rootRelativePath: string,
+  rawContext: Partial<Context>,
+  forLCA = false,
+) {
+  const context = ensureContext(rawContext);
+  const result = [];
+
+  if (context.paths) {
+    const inverted = invertPaths(context.paths, context.baseUrl, forLCA);
+    const matched = matchByPattern(rootRelativePath, inverted);
+
+    const substitutions = matched ? inverted[matched.pattern] ?? [] : [];
+    for (const subst of substitutions) {
+      const applied = resolveSubstitution(subst, matched?.captured ?? "");
+      result.push({
+        resolvedWith: {
+          type: "paths",
+          value: matched!.pattern,
+        } as const,
+        importPath: applied,
+        rootRelative: rootRelativePath,
+      });
+    }
+  }
+
+  if (context.baseUrl) {
+    const resolvedBaseUrl = normalizePath(
+      path.join(context.cwd, context.baseUrl),
+    );
+    if (context.cwd !== resolvedBaseUrl) {
+      const absolute = normalizePath(path.join(context.cwd, rootRelativePath));
+      const relativeFromBaseUrl = normalizePath(
+        path.relative(resolvedBaseUrl, absolute),
+      );
+      const trimmed = relativeFromBaseUrl.replace(/^\.\.?\//, "");
+      result.push({
+        resolvedWith: {
+          type: "baseUrl",
+          value: context.baseUrl,
+        } as const,
+        importPath: trimmed,
+        rootRelative: rootRelativePath,
+      });
+    }
+  }
+
+  if (context.rootDirs) {
+    for (const rootDir of context.rootDirs) {
+      const absolute = normalizePath(path.join(context.cwd, rootRelativePath));
+      const relativeFromRootDir = normalizePath(
+        path.relative(path.join(context.cwd, rootDir), absolute),
+      );
+      result.push({
+        resolvedWith: {
+          type: "rootDirs",
+          value: rootDir,
+        } as const,
+        importPath: relativeFromRootDir,
+        rootRelative: rootRelativePath,
+      });
+    }
+  }
+
+  return result;
 }

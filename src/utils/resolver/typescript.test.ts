@@ -1,14 +1,18 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import type { Context } from "./typescript";
 import { resolveImportPathInTypeScriptManner } from "./typescript";
+
+function ensureNull<T>(x: T | undefined | null): T | null {
+  return x ?? null;
+}
 
 const contextBase = {
   cwd: "/workspace/project",
 };
 
 function buildContainingFile(path: string) {
-  return resolve(contextBase.cwd, path);
+  return resolve(contextBase.cwd, dirname(path));
 }
 
 function createModuleExists(paths: string[]) {
@@ -94,14 +98,16 @@ describe("resolveImportPathInTypeScriptManner for absolute path", () => {
     "in $targetFilePath, import $rawImportPath, based on $context.baseUrl, with aliases $context.paths, results: $result",
     ({ targetFilePath, rawImportPath, context, moduleExists, result }) => {
       expect(
-        resolveImportPathInTypeScriptManner(
-          rawImportPath,
-          buildContainingFile(targetFilePath),
-          {
-            ...contextBase,
-            ...context,
-            moduleExists: createModuleExists(moduleExists),
-          },
+        ensureNull(
+          resolveImportPathInTypeScriptManner(
+            rawImportPath,
+            buildContainingFile(targetFilePath),
+            {
+              ...contextBase,
+              ...context,
+              moduleExists: createModuleExists(moduleExists),
+            },
+          )?.importPath,
         ),
       ).toBe(result);
     },
@@ -160,14 +166,16 @@ describe("resolveImportPathInTypeScriptManner for relative path", () => {
     "in $targetFilePath, import $rawImportPath, result: $result, rootDirs: $context.rootDirs, baseUrl: $context.baseUrl, aliases $context.paths, files: $moduleExists",
     ({ targetFilePath, rawImportPath, context, moduleExists, result }) => {
       expect(
-        resolveImportPathInTypeScriptManner(
-          rawImportPath,
-          buildContainingFile(targetFilePath),
-          {
-            ...contextBase,
-            ...context,
-            moduleExists: createModuleExists(moduleExists),
-          },
+        ensureNull(
+          resolveImportPathInTypeScriptManner(
+            rawImportPath,
+            buildContainingFile(targetFilePath),
+            {
+              ...contextBase,
+              ...context,
+              moduleExists: createModuleExists(moduleExists),
+            },
+          )?.importPath,
         ),
       ).toBe(result);
     },
