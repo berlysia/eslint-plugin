@@ -129,6 +129,230 @@ describe("prefer-closest-import-path: paths", () => {
   });
 });
 
+
+describe.each([
+  { prefer: PREFER.closest },
+  { prefer: PREFER.relativeIfDescendant },
+])("prefer-closest-import-path: paths(complex) - $prefer", ({ prefer }) => {
+  /*
+  - a
+    - b(alias @/ means a/b/)
+      - from.ts
+      - to.ts
+  */
+  it("alias is placed at LCA", () => {
+    const code = {
+      [PREFER.closest]: `import x from "./to";`,
+      [PREFER.relativeIfDescendant]: `import x from "@/to";`,
+    };
+    validTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/from.ts",
+      code: code[prefer],
+      moduleExists: ["./a/b/to"],
+    });
+  });
+  it("alias is placed at LCA - invalid", () => {
+    const importPath = {
+      [PREFER.closest]: {
+        from: "@/to",
+        to: "./to",
+      },
+      [PREFER.relativeIfDescendant]: {
+        from: "./to",
+        to: "@/to",
+      },
+    }[prefer];
+    invalidTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/from.ts",
+      code: `import x from "${importPath.from}";`,
+      output: `import x from "${importPath.to}";`,
+      moduleExists: ["./a/b/to"],
+      errors: [
+        {
+          messageId: "rewrite",
+          data: {
+            value: importPath.from,
+            mostSuitable: importPath.to,
+          },
+        },
+      ],
+    });
+  });
+  /*
+  - a
+    - b(alias @/ means a/b/)
+      - c
+        - from.ts
+        - to.ts
+  */
+  it("alias is placed at an ancestor of LCA", () => {
+    validTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/from.ts",
+      code: `import x from "./to";`,
+      moduleExists: ["./a/b/c/to"],
+    });
+  });
+  it("alias is placed at an ancestor of LCA - invalid", () => {
+    invalidTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/from.ts",
+      code: `import x from "@/c/to";`,
+      output: `import x from "./to";`,
+      moduleExists: ["./a/b/c/to"],
+      errors: [
+        {
+          messageId: "rewrite",
+          data: {
+            value: "@/c/to",
+            mostSuitable: "./to",
+          },
+        },
+      ],
+    });
+  });
+  /*
+  - a
+    - b(alias @/ means a/b/)
+      - c
+        - from.ts
+      - d
+        - to.ts
+  */
+  it("alias is placed at ancestor of LCA - deep", () => {
+    const code = {
+      [PREFER.closest]: `import x from "../d/to";`,
+      [PREFER.relativeIfDescendant]: `import x from "@/d/to";`,
+    };
+    validTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/from.ts",
+      code: code[prefer],
+      moduleExists: ["./a/b/d/to"],
+    });
+  });
+  it("alias is placed at ancestor of LCA - deep - invalid", () => {
+    const importPath = {
+      [PREFER.closest]: {
+        from: "@/d/to",
+        to: "../d/to",
+      },
+      [PREFER.relativeIfDescendant]: {
+        from: "../d/to",
+        to: "@/d/to",
+      },
+    }[prefer];
+    invalidTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/from.ts",
+      code: `import x from "${importPath.from}";`,
+      output: `import x from "${importPath.to}";`,
+      moduleExists: ["./a/b/d/to"],
+      errors: [
+        {
+          messageId: "rewrite",
+          data: {
+            value: importPath.from,
+            mostSuitable: importPath.to,
+          },
+        },
+      ],
+    });
+  });
+  /*
+  - a
+    - b(alias @/ means a/b/)
+      - c
+        - from.ts
+      - d
+        - e
+          - f
+            - to.ts
+  */
+  it("alias is placed at LCA - longer target branch", () => {
+    const code = {
+      [PREFER.closest]: `import x from "../../d/e/f/to";`,
+      [PREFER.relativeIfDescendant]: `import x from "@/d/e/f/to";`,
+    }[prefer];
+    validTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/from.ts",
+      code,
+      moduleExists: ["./a/b/d/e/f/to"],
+    });
+  });
+  it("alias is placed at LCA - longer target branch - invalid", () => {
+    const importPath = {
+      [PREFER.closest]: {
+        from: "@/d/e/f/to",
+        to: "../d/e/f/to",
+      },
+      [PREFER.relativeIfDescendant]: {
+        from: "../d/e/f/to",
+        to: "@/d/e/f/to",
+      },
+    }[prefer];
+    invalidTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/from.ts",
+      code: `import x from "${importPath.from}";`,
+      output: `import x from "${importPath.to}";`,
+      moduleExists: ["./a/b/d/e/f/to"],
+      errors: [
+        {
+          messageId: "rewrite",
+          data: {
+            value: importPath.from,
+            mostSuitable: importPath.to,
+          },
+        },
+      ],
+    });
+  });
+  /*
+  - a
+    - b(alias @/ means a/b/)
+      - c
+        - e
+          - f
+            - from.ts
+      - d
+        - to.ts
+  */
+  it("alias is placed at LCA - shorter target branch", () => {
+    const code = {
+      [PREFER.closest]: `import x from "@/d/to";`,
+      [PREFER.relativeIfDescendant]: `import x from "@/d/to";`,
+    }[prefer];
+    validTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/e/f/from.ts",
+      code,
+      moduleExists: ["./a/b/d/to"],
+    });
+  });
+  it("alias is placed at LCA - shorter target branch - invalid", () => {
+    invalidTester({
+      options: [{ paths: { "@/*": ["./a/b/*"] }, prefer: { "@/*": prefer } }],
+      filename: "a/b/c/e/f/from.ts",
+      code: `import x from "../../../d/to";`,
+      output: `import x from "@/d/to";`,
+      moduleExists: ["./a/b/d/to"],
+      errors: [
+        {
+          messageId: "rewrite",
+          data: {
+            value: "../../../d/to",
+            mostSuitable: "@/d/to",
+          },
+        },
+      ],
+    });
+  });
+});
+
 describe("prefer-closest-import-path: not found", () => {
   it("valid", () => {
     validTester({
@@ -515,14 +739,14 @@ describe("prefer-closest-import-path: samelevel multi patterns", () => {
   );
 });
 
-describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a", () => {
+describe("prefer-closest-import-path: samelevel multi patterns - prefer relativeIfDescendant", () => {
   describe("feature", () => {
     it.each([
       {
         name: "internal cis pattern 1",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -535,7 +759,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal cis pattern 2",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -543,6 +767,18 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         filename: "src/stubs/deep2/foo.ts",
         code: `import x from "@x/b";`,
         moduleExists: ["./src/stubs/deep2/b"],
+      },
+      {
+        name: "internal cis pattern 1(paths only)",
+        options: [
+          {
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
+            paths: { "@x/*": ["./src/stubs/deep/*", "./src/stubs/deep2/*"] },
+          },
+        ],
+        filename: "src/stubs/deep/foo.ts",
+        code: `import x from "@x/a";`,
+        moduleExists: ["./src/stubs/deep/a"],
       },
     ])(
       "should be valid - $name - filename: $filename, code: $code, options: $options",
@@ -555,7 +791,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal cis pattern 1",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -578,7 +814,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal cis pattern 2",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -610,7 +846,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal(deep) cis pattern 1",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep-a/*", "src/stubs/deep-b/*"] },
             baseUrl: "./",
           },
@@ -623,7 +859,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal(deep) cis pattern 2",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep-a/*", "src/stubs/deep-b/*"] },
             baseUrl: "./",
           },
@@ -636,7 +872,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal trans pattern 1",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -649,7 +885,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal trans pattern 2",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -662,7 +898,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal(deep) trans pattern 1",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep-a/*", "src/stubs/deep-b/*"] },
             baseUrl: "./",
           },
@@ -675,7 +911,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal(deep) trans pattern 2",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep-a/*", "src/stubs/deep-b/*"] },
             baseUrl: "./",
           },
@@ -688,7 +924,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "external",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -708,7 +944,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal trans pattern 1",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },
@@ -731,7 +967,7 @@ describe.only("prefer-closest-import-path: samelevel multi patterns - prefer a",
         name: "internal trans pattern 2",
         options: [
           {
-            prefer: { "@x/*": PREFER.aliasIfDescendant },
+            prefer: { "@x/*": PREFER.relativeIfDescendant },
             paths: { "@x/*": ["src/stubs/deep/*", "src/stubs/deep2/*"] },
             baseUrl: "./",
           },

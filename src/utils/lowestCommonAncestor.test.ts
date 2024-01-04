@@ -1,22 +1,12 @@
 import { test, expect } from "vitest";
 import lowestCommonAncestor from "./lowestCommonAncestor";
 
-test("'/foo/bar', '/foo/baz')).toBe('/foo'", () => {
-  expect(lowestCommonAncestor("/foo/bar", "/foo/baz")).toBe("/foo");
-});
-
-test("'/foo/bar', '/foo/bar')).toBe('/foo/bar'", () => {
-  expect(lowestCommonAncestor("/foo/bar", "/foo/bar")).toBe("/foo/bar");
-});
-
-test("'/foo/bar', '/foo/bar/baz')).toBe('/foo/bar'", () => {
-  expect(lowestCommonAncestor("/foo/bar", "/foo/bar/baz")).toBe("/foo/bar");
-});
-
-test("'/foo/bar/baz', '/foo/bar')).toBe('/foo/bar'", () => {
-  expect(lowestCommonAncestor("/foo/bar/baz", "/foo/bar")).toBe("/foo/bar");
-});
-
-test("'./foo/bar', './foo/baz')).toBe('./foo'", () => {
-  expect(lowestCommonAncestor("./foo/bar", "./foo/baz")).toBe("./foo");
+test.each([
+  { a: "/foo/bar", b: "/foo/baz", expected: "/foo" },
+  { a: "/foo/bar", b: "/foo/bar", expected: "/foo/bar" },
+  { a: "/foo/bar", b: "/foo/bar/baz", expected: "/foo/bar" },
+  { a: "/foo/bar/baz", b: "/foo/bar", expected: "/foo/bar" },
+  { a: "./foo/bar", b: "./foo/baz", expected: "./foo" },
+])(`lowestCommonAncestor(%a, %b) => $expected`, ({ a, b, expected }) => {
+  expect(lowestCommonAncestor(a, b)).toBe(expected);
 });

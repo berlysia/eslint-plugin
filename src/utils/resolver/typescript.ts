@@ -1,10 +1,7 @@
-import path, { normalize } from "node:path";
+import path from "node:path";
 import { moduleExists } from "../moduleExists";
 import normalizePath from "../normalizePath";
-
-const Log = process.env.DEBUG?.includes("@berlysia/eslint-plugin")
-  ? console
-  : { log: () => {} };
+import Log from "../logger";
 
 // based on https://github.com/microsoft/TypeScript/issues/5039
 
@@ -342,10 +339,12 @@ export function reverseResolve(
       result.push({
         resolvedWith: {
           type: "paths",
-          value: matched!.pattern,
+          pattern: subst,
+          matched: matched!.pattern,
         } as const,
         importPath: applied,
         rootRelative: rootRelativePath,
+        exact: applied === subst,
       });
     }
   }
@@ -367,6 +366,7 @@ export function reverseResolve(
         } as const,
         importPath: trimmed,
         rootRelative: rootRelativePath,
+        exact: false,
       });
     }
   }
@@ -384,6 +384,7 @@ export function reverseResolve(
         } as const,
         importPath: relativeFromRootDir,
         rootRelative: rootRelativePath,
+        exact: false, // 判定可能だが使わないのでいったんfalse
       });
     }
   }

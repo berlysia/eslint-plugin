@@ -1,11 +1,7 @@
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, relative, resolve } from "node:path";
 import { getTsconfig } from "get-tsconfig";
 import type { Rule } from "eslint";
-import slash from "slash";
-import resolvePkg from "resolve";
 import normalizePath from "../utils/normalizePath";
-import { assumeAlias, matchAlias } from "../utils/alias";
 import countSegmentLength from "../utils/countSegmentLength";
 import lowestCommonAncestor from "../utils/lowestCommonAncestor";
 import {
@@ -14,24 +10,7 @@ import {
 } from "../utils/resolver/typescript";
 import { moduleExists as originalModuleExists } from "../utils/moduleExists";
 
-// js/ts/jsx/tsx x cjs/esm
-const extensions = [
-  ".js",
-  ".ts",
-  ".jsx",
-  ".tsx",
-  ".cjs",
-  ".mjs",
-  ".cts",
-  ".mts",
-  ".cjsx",
-  ".mjsx",
-  ".ctsx",
-  ".mtsx",
-  ".json",
-];
-
-const prefers = ["closest", "aliasIfDescendant", "ignore"] as const;
+const prefers = ["closest", "relativeIfDescendant", "ignore"] as const;
 
 export const PREFER = Object.fromEntries(prefers.map((x) => [x, x])) as {
   [key in (typeof prefers)[number]]: key;
@@ -96,12 +75,19 @@ function ensureAlias(option: Partial<Alias> = {}): Alias | null {
   };
 }
 
-function getPreferAccessor(prefer: Option["prefer"] | null | undefined) {
-  const tmp = prefer ?? {};
-  return function getPrefer(key: string | null) {
-    if (!key) return PREFER.closest;
-    return tmp[key] ?? PREFER.closest;
-  };
+function ensurePrefer(
+  option: Option["prefer"] | null | undefined,
+): Option["prefer"] {
+  return option ?? Object.create(null);
+}
+
+function dropSlashStarFromKeys(preferMap: Option["prefer"]) {
+  return Object.fromEntries(
+    Object.entries(preferMap).map(([key, value]) => [
+      key.replace(/\/\*$/, ""),
+      value,
+    ]),
+  );
 }
 
 function getTsconfigAlias(currentTarget: string): Partial<Alias> | null {
@@ -116,6 +102,15 @@ function getTsconfigAlias(currentTarget: string): Partial<Alias> | null {
   }
   return null;
 }
+
+const RESOLVED_WITH = [
+  "relative-simple",
+  "relative-parent",
+  "paths",
+  "baseUrl",
+  "rootDirs",
+  "module",
+] as const;
 
 type TestOption = {
   moduleExists: (x: string) => boolean;
@@ -154,9 +149,11 @@ const rule: Rule.RuleModule = {
     const { cwd, physicalFilename } = context;
 
     const aliasFromOption = ensureAlias(context.options[0]);
-    const testOption: TestOption | null = context.options[1] ?? {};
+    const testOption: TestOption | null =
+      context.options[1] ?? Object.create(null);
     const tsconfigAlias = getTsconfigAlias(physicalFilename);
-    const resolverContextForTS = aliasFromOption ?? tsconfigAlias ?? {};
+    const resolverContextForTS =
+      aliasFromOption ?? tsconfigAlias ?? Object.create(null);
     const resolverContext = { ...resolverContextForTS, ...testOption, cwd };
     if (process.env.TESTING) {
       resolverContext.moduleExists =
@@ -166,7 +163,8 @@ const rule: Rule.RuleModule = {
       ? resolverContext.moduleExists ?? originalModuleExists
       : originalModuleExists;
 
-    const getPrefer = getPreferAccessor(context.options[0]?.prefer);
+    const preferMap = ensurePrefer(context.options[0]?.prefer);
+    const preferMapForLCA = dropSlashStarFromKeys(preferMap);
 
     return {
       Literal(node) {
@@ -213,27 +211,56 @@ const rule: Rule.RuleModule = {
           resolve(cwd, currentFileDir, value),
         );
 
-        // エイリアスも元の記述もファイルに行きあたらないときは打ち切る
+        // if both alias and original path don't point to any file, break
         if (!(resolved || moduleExists(resolvedAsAbsolutePath))) {
-          // console.log("打ち切り", { resolved, resolvedAsAbsolutePath });
           return null;
         }
 
-        // プロジェクトルート相対パスになっている
+        // project root relative
         const importeePath =
           resolved?.rootRelative ??
           normalizePath(relative(cwd, resolvedAsAbsolutePath));
 
+        const relativeImportPath = normalizePath(
+          relative(currentFileDir, importeePath),
+        );
+
+        /**
+         * インポート元からインポート先が直接祖先から1ホップ以下の関係にあるかどうか
+         * 例えば、
+         * - インポート元が src/a/b/c/d/e/f.ts
+         * - インポート先が src/a/b/g.ts
+         * - インポートパスは ../../../g.ts
+         * なら、インポート元からインポート先が直接祖先から1ホップの関係にある
+         * 一方で、
+         * - インポート元が src/a/b/c/d/e/f.ts
+         * - インポート先が src/a/b/g/h.ts
+         * - インポートパスは ../../../g/h.ts
+         * なら、インポート元からインポート先が直接祖先から1ホップの関係にない
+         */
+        const targetIsDirectAncestor = relativeImportPath
+          .split("/")
+          .slice(0, -1)
+          .every((x) => x === "..");
+
         const assumedPaths = [
           {
-            importPath: normalizePath(relative(currentFileDir, importeePath)),
+            importPath: relativeImportPath,
             rootRelative: importeePath,
-            resolvedWith: { type: "written" } as const,
+            resolvedWith: {
+              type: importeePath.startsWith("..")
+                ? "relative-parent"
+                : "relative-simple",
+            } as const,
+            exact: false,
           },
           ...reverseResolve(importeePath, resolverContext),
         ];
 
-        const lcaCache = Object.create(null);
+        const lcaCache: Record<
+          string,
+          { lca: string; assumedPaths: ReturnType<typeof reverseResolve> }
+        > = Object.create(null);
 
         function getLcaAndAssumedPaths(importeePath: string) {
           const cached = lcaCache[importeePath];
@@ -242,7 +269,7 @@ const rule: Rule.RuleModule = {
           const lcaAssumedPaths = reverseResolve(
             lca,
             resolverContext,
-            true/* forLCA */
+            true /* forLCA */,
           );
           lcaCache[importeePath] = {
             lca,
@@ -254,11 +281,15 @@ const rule: Rule.RuleModule = {
         const mostSuitable = assumedPaths.reduce<{
           length: number;
           value: string;
+          resolveType: (typeof RESOLVED_WITH)[number];
         }>(
           (acc, curr) => {
             const prefer =
               curr.resolvedWith.type === "paths"
-                ? getPrefer(curr.resolvedWith.value)
+                ? preferMap[
+                    (resolverContextForTS.baseUrl ?? "") +
+                      curr.resolvedWith.pattern
+                  ] ?? PREFER.closest
                 : null;
 
             if (prefer === PREFER.ignore) {
@@ -267,30 +298,68 @@ const rule: Rule.RuleModule = {
 
             const length = countSegmentLength(curr.importPath);
             /*
-              1. 長さが短いほうが優先
-              2. 同じ長さのときの優先度
-                - インポート元と先のパスのLCAをとったときに、LCAがエイリアスで表現できるとき
-                  - 完全一致する
-                    - オプションできめる
-                  - できないとき
-                相対パス > エイリアス > 親方向参照 > モジュール
+              1. 各表現でセグメント長が短いほうを優先する
             */
             if (length < acc.length) {
               return {
                 length,
                 value: curr.importPath,
+                resolveType: curr.resolvedWith.type,
               };
             }
+
+            /*
+              2. 同じ長さのとき
+            */
             if (length === acc.length) {
               const lca = getLcaAndAssumedPaths(curr.rootRelative);
-              const isLcaAssumed = lca.assumedPaths.length > 0;
-              console.log(lca.lca, lca.assumedPaths);
+              const exactMatched = lca.assumedPaths.find((x) => x.exact);
+              /*
+                - インポート元と先のパスのLCAをとったときに、LCAがエイリアスで表現できるとき
+              */
+              if (exactMatched) {
+                const lcaPrefer = preferMapForLCA[exactMatched.importPath];
+                /*
+                  - オプションできめる
+                    - closest 最短を選ぶ(パススルー)
+                    - relativeIfDescendant 直接子孫の関係でなければエイリアス
+                */
+                if (
+                  lcaPrefer === PREFER.relativeIfDescendant &&
+                  !targetIsDirectAncestor
+                ) {
+                  return {
+                    length,
+                    value: curr.importPath,
+                    resolveType: "paths",
+                  };
+                }
+              }
+
+              /*
+                - できないとき
+                  - 相対パス > エイリアス > 親方向参照 > baseUrl, rootDirs, モジュール
+              */
+              const accResolveTypeIndex = RESOLVED_WITH.indexOf(
+                acc.resolveType,
+              );
+              const currResolveTypeIndex = RESOLVED_WITH.indexOf(
+                curr.resolvedWith.type,
+              );
+              if (currResolveTypeIndex < accResolveTypeIndex) {
+                return {
+                  length,
+                  value: curr.importPath,
+                  resolveType: curr.resolvedWith.type,
+                };
+              }
             }
             return acc;
           },
           {
             length: Number.POSITIVE_INFINITY,
             value: "",
+            resolveType: "module",
           },
         );
 
