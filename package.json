@@ -7,7 +7,10 @@
     "build": "tsup src/index.ts --format cjs,esm --dts --minify --clean --sourcemap",
     "lint": "yarn run build && eslint .",
     "format": "prettier --write .",
-    "test": "TESTING=1 vitest"
+    "test": "TESTING=1 vitest",
+    "release": "yarn run build && bumpp",
+    "publish": "yarn npm publish --access public",
+    "publish:beta": "yarn npm publish --access public --tag beta"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -32,6 +35,7 @@
     "@types/micromatch": "^4.0.6",
     "@types/node": "^20.10.5",
     "@types/resolve": "^1.20.6",
+    "bumpp": "^9.2.1",
     "eslint": "^8.56.0",
     "eslint-plugin-eslint-plugin": "^5.2.1",
     "lint-staged": "^15.2.0",
