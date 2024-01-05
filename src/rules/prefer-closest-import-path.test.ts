@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { describe, it } from "vitest";
 import { RuleTester } from "eslint";
 import rule, { PREFER } from "./prefer-closest-import-path";
@@ -15,9 +15,21 @@ const ruleTester = new RuleTester({
 function createModuleExists(paths: string[] = []) {
   const exts = ["", ".js", ".jsx", ".ts", ".tsx"];
   return function moduleExists(this: { cwd: string }, absolutePath: string) {
-    return paths.some((p) => {
-      return exts.some((ext) => absolutePath + ext === resolve(this.cwd, p));
-    });
+    for (const p of paths) {
+      const resolved = resolve(this.cwd, p);
+      if (
+        p.startsWith("node_modules") &&
+        absolutePath === p.replace("node_modules/", "")
+      ) {
+        return resolved;
+      }
+      for (const ext of exts) {
+        if (absolutePath + ext === resolved) {
+          return resolved;
+        }
+      }
+    }
+    return false;
   };
 }
 
@@ -96,6 +108,22 @@ describe("prefer-closest-import-path: basic", () => {
       moduleExists: ["./src/stubs/deep/a"],
     });
   });
+  it("basic module", () => {
+    validTester({
+      options: DEFAULT_OPTIONS,
+      filename: "src/stubs/a.ts",
+      code: `import a from "mymod";`,
+      moduleExists: ["node_modules/mymod"],
+    });
+  });
+  it("basic module(deep)", () => {
+    validTester({
+      options: DEFAULT_OPTIONS,
+      filename: "src/stubs/a.ts",
+      code: `import a from "mymod/deep";`,
+      moduleExists: ["node_modules/mymod"],
+    });
+  });
 });
 
 describe("prefer-closest-import-path: paths", () => {
@@ -128,7 +156,6 @@ describe("prefer-closest-import-path: paths", () => {
     });
   });
 });
-
 
 describe.each([
   { prefer: PREFER.closest },

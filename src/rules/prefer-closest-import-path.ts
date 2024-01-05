@@ -9,6 +9,7 @@ import {
   reverseResolve,
 } from "../utils/resolver/typescript";
 import { moduleExists as originalModuleExists } from "../utils/moduleExists";
+import detectImportType from "../utils/detectImportType";
 
 const prefers = ["closest", "relativeIfDescendant", "ignore"] as const;
 
@@ -210,6 +211,12 @@ const rule: Rule.RuleModule = {
         const resolvedAsAbsolutePath = normalizePath(
           resolve(cwd, currentFileDir, value),
         );
+
+        const importType = detectImportType(value, cwd, moduleExists);
+
+        if (importType === "builtin" || importType === "external") {
+          return null;
+        }
 
         // if both alias and original path don't point to any file, break
         if (!(resolved || moduleExists(resolvedAsAbsolutePath))) {

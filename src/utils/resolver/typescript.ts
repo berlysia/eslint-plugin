@@ -24,7 +24,7 @@ export type Context = {
   baseUrl?: string;
   paths?: Record<string, string[]>;
   rootDirs?: string[];
-  moduleExists: (path: string) => boolean;
+  moduleExists: (path: string) => string | false;
 };
 
 function ensureContext(partial: Partial<Context>): Context {
