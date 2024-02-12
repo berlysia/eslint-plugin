@@ -1,6 +1,6 @@
 {
   "name": "@berlysia/eslint-plugin",
-  "version": "0.0.1-beta.2",
+  "version": "0.0.1-beta.3",
   "type": "module",
   "packageManager": "yarn@4.0.2",
   "scripts": {
