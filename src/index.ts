@@ -1,8 +1,8 @@
-import type { ESLint } from "eslint";
+import type { ESLint, Linter } from "eslint";
 import { version } from "../package.json";
 import preferClosestImportPath from "./rules/prefer-closest-import-path";
 
-const plugin: ESLint.Plugin = {
+const plugin = {
   meta: {
     name: "@berlysia/eslint-plugin",
     version,
@@ -10,16 +10,22 @@ const plugin: ESLint.Plugin = {
   rules: {
     "prefer-closest-import-path": preferClosestImportPath,
   },
-};
+  configs: {},
+} satisfies ESLint.Plugin;
 
-plugin.configs ??= {};
-plugin.configs.recommended = {
+const recommended = {
   plugins: {
     "@berlysia": plugin,
   },
   rules: {
     "@berlysia/prefer-closest-import-path": "error",
   },
+} satisfies Linter.FlatConfig;
+
+plugin.configs = { recommended };
+
+type Plugin = Omit<ESLint.Plugin, "configs"> & {
+  configs: { recommended: Linter.FlatConfig };
 };
 
-export default plugin;
+export default plugin satisfies ESLint.Plugin as unknown as Plugin;
